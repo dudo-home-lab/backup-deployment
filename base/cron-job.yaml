@@ -17,23 +17,28 @@ spec:
           serviceAccountName: secrets-backup-sa
           containers:
             - name: secrets-backup
-              image: registry.k8s.io/kubectl:v1.30.3
-              command:
-                - /bin/sh
-                - -c
+              image: busybox:stable
+              command: ["/bin/sh","-c"]
+              args:
                 - |
-                  TS=$(date +%Y%m%d-%H%M%S)
-                  BACKUP_FILE="/backups/secrets-${TS}.yaml"
-                  kubectl get secrets --all-namespaces -o yaml > "$BACKUP_FILE"
-                  # Keep only last 14 files
-                  ls -tp /backups/secrets-*.yaml | grep -v '/$' | tail -n +15 | xargs -r rm --
+                  set -eu
+                  /host/kubectl get secrets -A -o jsonpath='{range .items[*]}{"---\napiVersion: "}{.apiVersion}{"\nkind: "}{.kind}{"\nmetadata:\n  name: "}{.metadata.name}{"\n  namespace: "}{.metadata.namespace}{"\ntype: "}{.type}{"\ndata:\n"}{range $k,$v := .data}{"  "}{@key}{": "}{@value}{"\n"}{end}{"\n"}{end}' \
+                    > /backups/secrets-clean.yaml
               volumeMounts:
                 - name: backup-storage
                   mountPath: /backups
+                - name: host-kubectl
+                  mountPath: /host/kubectl
+                  subPath: kubectl
+                  readOnly: true
           volumes:
             - name: backup-storage
               persistentVolumeClaim:
                 claimName: backup-pvc
+            - name: host-kubectl
+              hostPath:
+                path: /usr/local/bin/kubectl
+                type: File
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -51,75 +56,26 @@ spec:
         spec:
           restartPolicy: OnFailure
           serviceAccountName: secrets-backup-sa
-          # 1) split the multi-doc backup into /work/*.yaml
-          initContainers:
-            - name: split-backup
+          containers:
+            - name: restore-missing-secrets
               image: busybox:stable
-              command:
-                - /bin/sh
-                - -c
+              command: ["/bin/sh","-c"]
+              args:
                 - |
                   set -eu
-                  if [ -z "${BACKUP_FILE:-}" ]; then
-                    echo "ERROR: BACKUP_FILE not set"; exit 1
-                  fi
-                  if [ ! -f "/backups/${BACKUP_FILE}" ]; then
-                    echo "ERROR: /backups/${BACKUP_FILE} not found"; exit 1
-                  fi
-
-                  mkdir -p /work
-                  # Split on '---' document separators into secret-000.yaml, secret-001.yaml, ...
-                  awk '
-                    BEGIN{doc=-1}
-                    /^---[[:space:]]*$/{doc++; next}
-                    { if(doc<0){doc=0} fn=sprintf("/work/secret-%03d.yaml", doc); print > fn }
-                  ' "/backups/${BACKUP_FILE}"
-
-                  # Clean out any empty files
-                  find /work -type f -size 0 -delete
-              env:
-                - name: BACKUP_FILE
-                  value: "secrets-20250810-030000.yaml"   # <-- set to the backup you want to restore
+                  /host/kubectl create -f /backups/secrets-clean.yaml || true
               volumeMounts:
                 - name: backup-storage
                   mountPath: /backups
-                - name: work
-                  mountPath: /work
-          # 2) read each split file, create only if missing
-          containers:
-            - name: restore-missing-secrets
-              image: registry.k8s.io/kubectl:v1.30.3
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  set -eu
-                  shopt -s nullglob || true
-
-                  files=(/work/*.yaml)
-                  [ ${#files[@]} -gt 0 ] || { echo "No split files found. Exiting."; exit 0; }
-
-                  for f in "${files[@]}"; do
-                    NAME="$(awk '/^[[:space:]]*name:[[:space:]]/ {print $2; exit}' "$f" || true)"
-                    NS="$(awk '/^[[:space:]]*namespace:[[:space:]]/ {print $2; exit}' "$f" || true)"
-                    [ -n "$NAME" ] || { echo "Skipping file with no metadata.name: $f"; continue; }
-                    [ -n "$NS" ] || NS=default
-
-                    secret_name="$(kubectl -n "$NS" get secret "$NAME" -o name 2>/dev/null)"
-                    if [ -n "$secret_name" ]; then
-                      echo "Secret exists"
-                    else
-                      echo "Secret missing or inaccessible"
-                    fi
-
-                    rm -f "$f"
-                  done
-              volumeMounts:
-                - name: work
-                  mountPath: /work
+                - name: host-kubectl
+                  mountPath: /host/kubectl
+                  subPath: kubectl
+                  readOnly: true
           volumes:
             - name: backup-storage
               persistentVolumeClaim:
                 claimName: backup-pvc
-            - name: work
-              emptyDir: {}
+            - name: host-kubectl
+              hostPath:
+                path: /usr/local/bin/kubectl
+                type: File
