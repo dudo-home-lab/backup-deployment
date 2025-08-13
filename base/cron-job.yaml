@@ -22,7 +22,7 @@ spec:
               args:
                 - |
                   set -eu
-                  /host/kubectl get secrets -A -o jsonpath='{range .items[*]}{"---\napiVersion: "}{.apiVersion}{"\nkind: "}{.kind}{"\nmetadata:\n  name: "}{.metadata.name}{"\n  namespace: "}{.metadata.namespace}{"\ntype: "}{.type}{"\ndata:\n"}{range $k,$v := .data}{"  "}{@key}{": "}{@value}{"\n"}{end}{"\n"}{end}' \
+                  /host/kubectl get secrets -A -o jsonpath='{range .items[*]}{"---\napiVersion: "}{.apiVersion}{"\nkind: "}{.kind}{"\nmetadata:\n  name: "}{.metadata.name}{"\n  namespace: "}{.metadata.namespace}{"\ntype: "}{.type}{"\ndata:\n"}{range .data}{"  "}{@key}{": "}{@value}{"\n"}{end}{"\n"}{end}' \
                     > /backups/secrets-clean.yaml
               volumeMounts:
                 - name: backup-storage
