@@ -22,8 +22,26 @@ spec:
               args:
                 - |
                   set -eu
-                  /host/kubectl get secrets -A -o jsonpath='{range .items[*]}{"---\napiVersion: "}{.apiVersion}{"\nkind: "}{.kind}{"\nmetadata:\n  name: "}{.metadata.name}{"\n  namespace: "}{.metadata.namespace}{"\ntype: "}{.type}{"\ndata:\n"}{range .data}{"  "}{@key}{": "}{@value}{"\n"}{end}{"\n"}{end}' \
-                    > /backups/secrets-clean.yaml
+                  /host/kubectl get secrets -A -o go-template='{{range .items}}---
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: {{.metadata.name}}
+                    namespace: {{.metadata.namespace}}
+                  {{- if .type}}
+                  type: {{.type}}
+                  {{- else}}
+                  type: Opaque
+                  {{- end}}
+                  {{- if .data}}
+                  data:
+                  {{- range $k, $v := .data}}
+                    {{$k}}: {{$v}}
+                  {{- end}}
+                  {{- else}}
+                  data: {}
+                  {{- end}}
+                  {{"\n"}}{{end}}' > secrets-clean.yaml
               volumeMounts:
                 - name: backup-storage
                   mountPath: /backups
