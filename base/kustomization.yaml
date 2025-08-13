@@ -6,4 +6,4 @@ resources:
   - rbac.yaml
   - pvc.yaml
   - cron-job.yaml
-  - job.yaml
+  # - job.yaml # Argo App → Actions → Create Resource → paste the Job and set BACKUP_FILE.
