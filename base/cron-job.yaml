@@ -1,0 +1,33 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: k8s-secrets-backup
+  namespace: kube-system
+spec:
+  schedule: "0 3 * * *" # Run daily at 3 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: secrets-backup-sa
+          containers:
+            - name: secrets-backup
+              image: registry.k8s.io/kubectl:v1.30.3
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  TS=$(date +%Y%m%d-%H%M%S)
+                  BACKUP_FILE="/backups/secrets-${TS}.yaml"
+                  kubectl get secrets --all-namespaces -o yaml > "$BACKUP_FILE"
+                  # Keep only last 14 files
+                  ls -tp /backups/secrets-*.yaml | grep -v '/$' | tail -n +15 | xargs -r rm --
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: backup-pvc
