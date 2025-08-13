@@ -29,7 +29,6 @@ spec:
                   mountPath: /backups
                 - name: host-kubectl
                   mountPath: /host/kubectl
-                  subPath: kubectl
                   readOnly: true
           volumes:
             - name: backup-storage
@@ -69,7 +68,6 @@ spec:
                   mountPath: /backups
                 - name: host-kubectl
                   mountPath: /host/kubectl
-                  subPath: kubectl
                   readOnly: true
           volumes:
             - name: backup-storage
